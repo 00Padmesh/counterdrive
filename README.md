@@ -125,6 +125,57 @@ Example request shape:
 }
 ```
 
+For the real nuScenes model, use the trajectory-selected and risk-selected
+checkpoints independently. The calibrated validation threshold from the completed
+experiment is `0.022723674774169922`:
+
+```bash
+counterdrive-api \
+  --config configs/nuscenes_mini.yaml \
+  --trajectory-checkpoint checkpoints/nuscenes_residual/best.pt \
+  --risk-checkpoint checkpoints/nuscenes_residual/best_collision.pt \
+  --risk-threshold 0.022723674774169922
+```
+
+The API exposes:
+
+- `GET /health` for frontend connection status
+- `GET /metadata` for sequence sizes, calibration, and model capabilities
+- `POST /predict` for one proposed future action sequence
+- `POST /counterfactual` for the five built-in action scenarios
+
+Local CORS is enabled for the frontend on ports `localhost:5173` and
+`127.0.0.1:5173`. The legacy `--checkpoint` option remains available when one
+checkpoint supplies both heads.
+
+## Run the frontend
+
+The React dashboard lives in `frontend/` and runs separately from FastAPI. It has a
+built-in validated counterfactual demo, so it remains explorable when the backend is
+offline. When the API is online, upload four consecutive front-camera images to run
+the five action scenarios live.
+
+```bash
+cd frontend
+pnpm install
+pnpm dev
+```
+
+Open `http://127.0.0.1:5173`. The default API is
+`http://127.0.0.1:8000`; copy `frontend/.env.example` to `frontend/.env` and change
+`VITE_API_URL` only if the backend uses another address.
+
+Production frontend check:
+
+```bash
+cd frontend
+pnpm build
+pnpm lint
+```
+
+Docker is intentionally not required. Run FastAPI in one terminal and Vite in a
+second terminal.
+
 ## nuScenes-mini
 
 1. Download and unpack nuScenes mini so the configured root contains its maps,
@@ -212,12 +263,17 @@ src/counterdrive/
   counterfactual.py      action comparisons and trajectory visualization
   audit.py               nuScenes label audit and visual QA
 tests/                   data, model, metrics, and API tests
+frontend/                standalone React research dashboard
 ```
 
-## Next milestone
+## Current status and next milestone
 
-The highest-value next step after Phase 2 is a **real nuScenes-mini experiment and
-label audit**, not a frontend. Inspect derived controls and risk labels, add explicit
-time-to-collision/object-track targets, and compare the conditioned model against the
-included action-agnostic baseline. After that, add latent future-frame consistency or
-a lightweight decoder so rollouts can be visually audited.
+The end-to-end student project is complete: synthetic fallback, nuScenes-mini
+adapter and audit, action-conditioned model, baselines, training/evaluation,
+dual-checkpoint inference API, automated tests, and a standalone frontend.
+
+The next research milestone—not required to run the project—is to move beyond the
+small nuScenes-mini split: add explicit time-to-collision/object-track targets and
+evaluate on a larger scene-disjoint dataset. A lightweight future-frame decoder is
+also a useful qualitative extension, but should not replace trajectory and risk
+metrics.
