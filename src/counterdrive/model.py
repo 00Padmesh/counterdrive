@@ -9,6 +9,7 @@ from counterdrive.config import ModelConfig
 
 class FrameEncoder(nn.Module):
     def __init__(self, latent_dim: int, pretrained: bool, freeze: bool, unfreeze_layer4: bool):
+        super().__init__()
         weights = ResNet18_Weights.DEFAULT if pretrained else None
         backbone = resnet18(weights=weights)
         feature_dim = backbone.fc.in_features
@@ -42,7 +43,12 @@ class CounterDriveModel(nn.Module):
         super().__init__()
         dim = config.latent_dim
         self.future_steps = future_steps
-        self.frame_encoder = FrameEncoder(dim, config.pretrained, config.freeze_vision, config.unfreeze_layer4)
+        self.frame_encoder = FrameEncoder(
+            dim,
+            config.pretrained,
+            config.freeze_vision,
+            config.unfreeze_layer4,
+        )
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=dim,
             nhead=config.transformer_heads,
@@ -65,13 +71,24 @@ class CounterDriveModel(nn.Module):
         )
         self.dynamics = nn.TransformerEncoder(dynamics_layer, config.transformer_layers)
         self.step_embedding = nn.Parameter(torch.randn(1, future_steps, dim) * 0.02)
-        self.trajectory_head = nn.Sequential(nn.LayerNorm(dim), nn.Linear(dim, dim), nn.GELU(), nn.Linear(dim, 2))
-        self.collision_head = nn.Sequential(nn.LayerNorm(dim), nn.Linear(dim, dim // 2), nn.GELU(), nn.Linear(dim // 2, 1))
+        self.trajectory_head = nn.Sequential(
+            nn.LayerNorm(dim),
+            nn.Linear(dim, dim),
+            nn.GELU(),
+            nn.Linear(dim, 2),
+        )
+        self.collision_head = nn.Sequential(
+            nn.LayerNorm(dim),
+            nn.Linear(dim, dim // 2),
+            nn.GELU(),
+            nn.Linear(dim // 2, 1),
+        )
 
     def forward(self, frames: torch.Tensor, actions: torch.Tensor) -> dict[str, torch.Tensor]:
         history = self.temporal_encoder(self.frame_encoder(frames))
         current_state = history[:, -1:, :]
-        future_latents = self.dynamics(current_state + self.action_encoder(actions) + self.step_embedding)
+        dynamics_input = current_state + self.action_encoder(actions) + self.step_embedding
+        future_latents = self.dynamics(dynamics_input)
         trajectory = self.trajectory_head(future_latents)
         collision_logits = self.collision_head(future_latents.mean(dim=1)).squeeze(-1)
         return {

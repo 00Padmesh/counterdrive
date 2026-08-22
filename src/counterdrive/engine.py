@@ -8,13 +8,36 @@ from torch import nn
 from counterdrive.metrics import collision_metrics, trajectory_metrics
 
 
-def compute_loss(outputs: dict[str, torch.Tensor], batch: dict[str, torch.Tensor], trajectory_weight: float = 1.0, collision_weight: float = 0.5, latent_weight: float = 0.1) -> tuple[torch.Tensor, dict[str, float]]:
-    trajectory_loss = nn.functional.smooth_l1_loss(outputs["trajectory"], batch["future_trajectory"])
-    collision_loss = nn.functional.binary_cross_entropy_with_logits(outputs["collision_logits"], batch["collision"])
+def compute_loss(
+    outputs: dict[str, torch.Tensor],
+    batch: dict[str, torch.Tensor],
+    trajectory_weight: float = 1.0,
+    collision_weight: float = 0.5,
+    latent_weight: float = 0.1,
+) -> tuple[torch.Tensor, dict[str, float]]:
+    trajectory_loss = nn.functional.smooth_l1_loss(
+        outputs["trajectory"], batch["future_trajectory"]
+    )
+    collision_loss = nn.functional.binary_cross_entropy_with_logits(
+        outputs["collision_logits"], batch["collision"]
+    )
     latents = outputs["future_latents"]
-    latent_loss = (latents[:, 1:] - latents[:, :-1]).square().mean() if latents.shape[1] > 1 else latents.new_tensor(0.0)
-    total = trajectory_weight * trajectory_loss + collision_weight * collision_loss + latent_weight * latent_loss
-    return total, {"loss": total.item(), "trajectory_loss": trajectory_loss.item(), "collision_loss": collision_loss.item(), "latent_loss": latent_loss.item()}
+    if latents.shape[1] > 1:
+        latent_loss = (latents[:, 1:] - latents[:, :-1]).square().mean()
+    else:
+        latent_loss = latents.new_tensor(0.0)
+    total = (
+        trajectory_weight * trajectory_loss
+        + collision_weight * collision_loss
+        + latent_weight * latent_loss
+    )
+    parts = {
+        "loss": total.item(),
+        "trajectory_loss": trajectory_loss.item(),
+        "collision_loss": collision_loss.item(),
+        "latent_loss": latent_loss.item(),
+    }
+    return total, parts
 
 
 def move_batch(batch: dict[str, torch.Tensor], device: str) -> dict[str, torch.Tensor]:
@@ -22,7 +45,11 @@ def move_batch(batch: dict[str, torch.Tensor], device: str) -> dict[str, torch.T
 
 
 @torch.inference_mode()
-def evaluate_model(model: nn.Module, loader: Iterable[dict[str, torch.Tensor]], device: str) -> dict[str, float]:
+def evaluate_model(
+    model: nn.Module,
+    loader: Iterable[dict[str, torch.Tensor]],
+    device: str,
+) -> dict[str, float]:
     model.eval()
     trajectories, targets, logits, collisions = [], [], [], []
     for raw_batch in loader:
@@ -35,4 +62,3 @@ def evaluate_model(model: nn.Module, loader: Iterable[dict[str, torch.Tensor]], 
     result = trajectory_metrics(torch.cat(trajectories), torch.cat(targets))
     result.update(collision_metrics(torch.cat(logits), torch.cat(collisions)))
     return result
-

@@ -6,7 +6,14 @@ from counterdrive.model import CounterDriveModel
 
 
 def test_model_forward_and_backward() -> None:
-    config = ModelConfig(pretrained=False, freeze_vision=True, latent_dim=32, transformer_layers=1, transformer_heads=4, dropout=0.0)
+    config = ModelConfig(
+        pretrained=False,
+        freeze_vision=True,
+        latent_dim=32,
+        transformer_layers=1,
+        transformer_heads=4,
+        dropout=0.0,
+    )
     model = CounterDriveModel(config, future_steps=3)
     frames = torch.rand(2, 2, 3, 64, 64)
     actions = torch.rand(2, 3, 3)
@@ -18,4 +25,3 @@ def test_model_forward_and_backward() -> None:
     loss.backward()
     assert parts["loss"] > 0
     assert model.trajectory_head[-1].weight.grad is not None
-

@@ -51,14 +51,21 @@ def decode_frame(encoded: str, image_size: int) -> torch.Tensor:
     return torch.from_numpy(image).permute(2, 0, 1).float() / 255.0
 
 
-def create_app(config_path: str = "configs/mvp.yaml", checkpoint_path: str | None = None) -> FastAPI:
+def create_app(
+    config_path: str = "configs/mvp.yaml",
+    checkpoint_path: str | None = None,
+) -> FastAPI:
     config: Config = load_config(config_path)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         model = CounterDriveModel(config.model, config.data.future_steps).to(config.resolved_device)
         if checkpoint_path:
-            checkpoint = torch.load(checkpoint_path, map_location=config.resolved_device, weights_only=False)
+            checkpoint = torch.load(
+                checkpoint_path,
+                map_location=config.resolved_device,
+                weights_only=False,
+            )
             model.load_state_dict(checkpoint["model"])
         model.eval()
         app.state.model = model
@@ -73,13 +80,25 @@ def create_app(config_path: str = "configs/mvp.yaml", checkpoint_path: str | Non
     @app.post("/predict", response_model=PredictionResponse)
     def predict(request: PredictionRequest) -> PredictionResponse:
         if len(request.frames) != config.data.sequence_length:
-            raise HTTPException(status_code=422, detail=f"Expected {config.data.sequence_length} frames")
+            detail = f"Expected {config.data.sequence_length} frames"
+            raise HTTPException(status_code=422, detail=detail)
         if len(request.actions) != config.data.future_steps:
-            raise HTTPException(status_code=422, detail=f"Expected {config.data.future_steps} actions")
-        frames = torch.stack([decode_frame(frame, config.data.image_size) for frame in request.frames]).unsqueeze(0)
-        actions = torch.tensor([[a.steering, a.throttle, a.brake] for a in request.actions]).unsqueeze(0)
+            detail = f"Expected {config.data.future_steps} actions"
+            raise HTTPException(status_code=422, detail=detail)
+        decoded_frames = [
+            decode_frame(frame, config.data.image_size) for frame in request.frames
+        ]
+        frames = torch.stack(decoded_frames).unsqueeze(0)
+        action_values = [
+            [action.steering, action.throttle, action.brake]
+            for action in request.actions
+        ]
+        actions = torch.tensor(action_values).unsqueeze(0)
         with torch.inference_mode():
-            outputs = app.state.model(frames.to(config.resolved_device), actions.to(config.resolved_device))
+            outputs = app.state.model(
+                frames.to(config.resolved_device),
+                actions.to(config.resolved_device),
+            )
         return PredictionResponse(
             trajectory=outputs["trajectory"][0].cpu().tolist(),
             collision_probability=torch.sigmoid(outputs["collision_logits"])[0].item(),
@@ -102,4 +121,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

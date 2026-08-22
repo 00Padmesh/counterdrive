@@ -17,5 +17,8 @@ def collision_metrics(logits: torch.Tensor, target: torch.Tensor) -> dict[str, f
     false_negative = ((prediction == 0) & (target == 1)).sum().float()
     precision = true_positive / (true_positive + false_positive).clamp_min(1)
     recall = true_positive / (true_positive + false_negative).clamp_min(1)
-    return {"collision_accuracy": accuracy.item(), "collision_precision": precision.item(), "collision_recall": recall.item()}
-
+    return {
+        "collision_accuracy": accuracy.item(),
+        "collision_precision": precision.item(),
+        "collision_recall": recall.item(),
+    }

@@ -46,7 +46,12 @@ def train(config: Config) -> Path:
             optimizer.step()
             running_loss += loss.item()
         metrics = evaluate_model(model, val_loader, device)
-        print(json.dumps({"epoch": epoch, "train_loss": running_loss / len(train_loader), **metrics}))
+        epoch_result = {
+            "epoch": epoch,
+            "train_loss": running_loss / len(train_loader),
+            **metrics,
+        }
+        print(json.dumps(epoch_result))
         if metrics["ade"] < best_ade:
             best_ade = metrics["ade"]
             torch.save({"model": model.state_dict(), "config": config}, best_path)
@@ -62,4 +67,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

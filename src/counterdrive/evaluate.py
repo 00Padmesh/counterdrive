@@ -18,7 +18,11 @@ def main() -> None:
     args = parser.parse_args()
     config = load_config(args.config)
     model = CounterDriveModel(config.model, config.data.future_steps).to(config.resolved_device)
-    checkpoint = torch.load(args.checkpoint, map_location=config.resolved_device, weights_only=False)
+    checkpoint = torch.load(
+        args.checkpoint,
+        map_location=config.resolved_device,
+        weights_only=False,
+    )
     model.load_state_dict(checkpoint["model"])
     _, val_loader = build_dataloaders(config)
     print(json.dumps(evaluate_model(model, val_loader, config.resolved_device), indent=2))
