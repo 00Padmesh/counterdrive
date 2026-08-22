@@ -11,6 +11,13 @@ from counterdrive.config import Config, load_config
 from counterdrive.data import NuScenesSequenceDataset
 
 
+def evenly_spaced_indices(length: int, count: int) -> list[int]:
+    if length <= 0 or count <= 0:
+        return []
+    count = min(length, count)
+    return np.linspace(0, length - 1, count, dtype=np.int64).tolist()
+
+
 def build_nuscenes_dataset(config: Config) -> NuScenesSequenceDataset:
     data = config.data
     if data.backend != "nuscenes":
@@ -67,15 +74,17 @@ def audit_dataset(
     max_samples: int = 100,
     preview_samples: int = 8,
 ) -> dict[str, object]:
-    sample_count = min(max_samples, len(dataset))
+    sample_indices = evenly_spaced_indices(len(dataset), max_samples)
+    preview_positions = evenly_spaced_indices(len(sample_indices), preview_samples)
+    preview_indices = {sample_indices[position] for position in preview_positions}
     collisions, trajectories, actions = [], [], []
     previews = []
-    for index in range(sample_count):
+    for index in sample_indices:
         sample = dataset[index]
         collisions.append(float(sample["collision"].item()))
         trajectories.append(sample["future_trajectory"].numpy())
         actions.append(sample["actions"].numpy())
-        if len(previews) < preview_samples:
+        if index in preview_indices:
             previews.append(render_sample(sample))
 
     trajectory_array = np.concatenate(trajectories)
@@ -83,7 +92,7 @@ def audit_dataset(
     summary: dict[str, object] = {
         "dataset_windows": len(dataset),
         "scene_count": len(set(dataset.scene_tokens)),
-        "audited_samples": sample_count,
+        "audited_samples": len(sample_indices),
         "proximity_risk_rate": float(np.mean(collisions)),
         "trajectory": {
             "lateral_min": float(trajectory_array[:, 0].min()),
