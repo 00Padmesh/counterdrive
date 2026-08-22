@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import numpy as np
 import torch
-from sklearn.metrics import average_precision_score, roc_auc_score
+from sklearn.metrics import average_precision_score, precision_recall_curve, roc_auc_score
 
 
 def trajectory_metrics(prediction: torch.Tensor, target: torch.Tensor) -> dict[str, float]:
@@ -28,6 +29,22 @@ def collision_metrics(logits: torch.Tensor, target: torch.Tensor) -> dict[str, f
         if has_both_classes
         else float("nan")
     )
+    best_f1 = float("nan")
+    best_threshold = float("nan")
+    if has_both_classes:
+        curve_precision, curve_recall, thresholds = precision_recall_curve(
+            labels,
+            probabilities,
+        )
+        curve_f1 = (
+            2
+            * curve_precision[:-1]
+            * curve_recall[:-1]
+            / np.clip(curve_precision[:-1] + curve_recall[:-1], 1e-8, None)
+        )
+        best_index = int(np.argmax(curve_f1))
+        best_f1 = float(curve_f1[best_index])
+        best_threshold = float(thresholds[best_index])
     return {
         "collision_accuracy": accuracy.item(),
         "collision_precision": precision.item(),
@@ -35,4 +52,6 @@ def collision_metrics(logits: torch.Tensor, target: torch.Tensor) -> dict[str, f
         "collision_f1": f1.item(),
         "collision_auroc": auroc,
         "collision_average_precision": average_precision,
+        "collision_best_f1": best_f1,
+        "collision_best_threshold": best_threshold,
     }

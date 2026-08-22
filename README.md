@@ -46,6 +46,9 @@ and set `model.pretrained: false` if offline. Evaluation reports ADE, FDE,
 collision accuracy, precision, recall, F1, AUROC, and average precision. The
 synthetic generator reuses each observed scene across five alternative future
 actions and recomputes collision labels from each proposed trajectory.
+Evaluation also reports the best validation F1 and corresponding probability
+threshold as a calibration diagnostic. Deployment thresholds must be calibrated
+on held-out data rather than a final test set.
 
 ### Colab and persistent checkpoints
 
