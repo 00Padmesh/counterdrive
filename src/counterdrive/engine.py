@@ -14,12 +14,15 @@ def compute_loss(
     trajectory_weight: float = 1.0,
     collision_weight: float = 0.5,
     latent_weight: float = 0.1,
+    collision_positive_weight: float = 1.0,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     trajectory_loss = nn.functional.smooth_l1_loss(
         outputs["trajectory"], batch["future_trajectory"]
     )
     collision_loss = nn.functional.binary_cross_entropy_with_logits(
-        outputs["collision_logits"], batch["collision"]
+        outputs["collision_logits"],
+        batch["collision"],
+        pos_weight=outputs["collision_logits"].new_tensor(collision_positive_weight),
     )
     latents = outputs["future_latents"]
     if latents.shape[1] > 1:

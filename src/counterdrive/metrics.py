@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import torch
+from sklearn.metrics import average_precision_score, roc_auc_score
 
 
 def trajectory_metrics(prediction: torch.Tensor, target: torch.Tensor) -> dict[str, float]:
@@ -17,8 +18,21 @@ def collision_metrics(logits: torch.Tensor, target: torch.Tensor) -> dict[str, f
     false_negative = ((prediction == 0) & (target == 1)).sum().float()
     precision = true_positive / (true_positive + false_positive).clamp_min(1)
     recall = true_positive / (true_positive + false_negative).clamp_min(1)
+    f1 = 2 * precision * recall / (precision + recall).clamp_min(1e-8)
+    probabilities = torch.sigmoid(logits).detach().cpu().numpy()
+    labels = target.detach().cpu().numpy()
+    has_both_classes = len(set(labels.tolist())) == 2
+    auroc = float(roc_auc_score(labels, probabilities)) if has_both_classes else float("nan")
+    average_precision = (
+        float(average_precision_score(labels, probabilities))
+        if has_both_classes
+        else float("nan")
+    )
     return {
         "collision_accuracy": accuracy.item(),
         "collision_precision": precision.item(),
         "collision_recall": recall.item(),
+        "collision_f1": f1.item(),
+        "collision_auroc": auroc,
+        "collision_average_precision": average_precision,
     }

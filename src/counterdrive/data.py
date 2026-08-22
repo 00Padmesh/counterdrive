@@ -19,6 +19,44 @@ class DrivingSample:
     collision: torch.Tensor
 
 
+def quaternion_yaw(rotation: list[float]) -> float:
+    """Return planar yaw from a nuScenes [w, x, y, z] quaternion."""
+    w, x, y, z = rotation
+    return float(np.arctan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z)))
+
+
+def global_to_ego(
+    global_positions: np.ndarray,
+    ego_origin: np.ndarray,
+    ego_yaw: float,
+) -> np.ndarray:
+    offsets = global_positions - ego_origin
+    cosine, sine = np.cos(ego_yaw), np.sin(ego_yaw)
+    global_from_ego = np.asarray([[cosine, -sine], [sine, cosine]])
+    return offsets @ global_from_ego
+
+
+def derive_actions(
+    positions: np.ndarray,
+    yaws: np.ndarray,
+    timestamps: np.ndarray,
+    history_index: int,
+    future_steps: int,
+) -> np.ndarray:
+    deltas = np.diff(positions, axis=0)
+    elapsed = np.diff(timestamps).clip(min=1e-3)
+    speeds = np.linalg.norm(deltas, axis=1) / elapsed
+    accelerations = np.diff(speeds, prepend=speeds[0]) / elapsed
+    yaw_changes = np.diff(yaws)
+    yaw_deltas = np.arctan2(np.sin(yaw_changes), np.cos(yaw_changes))
+    indices = np.arange(history_index, history_index + future_steps)
+    actions = np.zeros((future_steps, 3), dtype=np.float32)
+    actions[:, 0] = np.clip(yaw_deltas[indices] / 0.5, -1.0, 1.0)
+    actions[:, 1] = np.clip(accelerations[indices] / 3.0, 0.0, 1.0)
+    actions[:, 2] = np.clip(-accelerations[indices] / 5.0, 0.0, 1.0)
+    return actions
+
+
 class SyntheticDrivingDataset(Dataset[dict[str, torch.Tensor]]):
     """Deterministic toy scenes whose future depends on steering, throttle, and brake."""
 
@@ -29,12 +67,14 @@ class SyntheticDrivingDataset(Dataset[dict[str, torch.Tensor]]):
         future_steps: int,
         image_size: int,
         seed: int,
+        collision_fraction: float = 0.35,
     ):
         self.samples = samples
         self.sequence_length = sequence_length
         self.future_steps = future_steps
         self.image_size = image_size
         self.seed = seed
+        self.collision_fraction = collision_fraction
 
     def __len__(self) -> int:
         return self.samples
@@ -45,8 +85,14 @@ class SyntheticDrivingDataset(Dataset[dict[str, torch.Tensor]]):
         throttle = float(rng.uniform(0.0, 1.0))
         brake = float(rng.uniform(0.0, 0.7))
         speed = max(0.15, throttle - 0.65 * brake + 0.25)
-        obstacle_x = float(rng.uniform(-1.0, 1.0))
-        obstacle_y = float(rng.uniform(2.5, 8.0))
+        is_collision = (index % 100) < round(self.collision_fraction * 100)
+        collision_step = int(rng.integers(1, self.future_steps + 1))
+        if is_collision:
+            obstacle_x = 0.18 * steering * collision_step**2
+            obstacle_y = collision_step * speed
+        else:
+            obstacle_x = float(rng.choice([-1.0, 1.0]) * rng.uniform(2.0, 3.0))
+            obstacle_y = float(rng.uniform(2.5, 8.0))
 
         frames = []
         for step in range(self.sequence_length):
@@ -125,12 +171,17 @@ class NuScenesSequenceDataset(Dataset[dict[str, torch.Tensor]]):
 
     def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
         sample = self.nusc.get("sample", self.tokens[index])
-        frames, positions = [], []
+        frames, positions, yaws, timestamps, future_records = [], [], [], [], []
         current = sample
-        for _ in range(self.sequence_length + self.future_steps):
+        total_steps = self.sequence_length + self.future_steps
+        for step in range(total_steps):
             cam = self.nusc.get("sample_data", current["data"]["CAM_FRONT"])
             pose = self.nusc.get("ego_pose", cam["ego_pose_token"])
             positions.append(pose["translation"][:2])
+            yaws.append(quaternion_yaw(pose["rotation"]))
+            timestamps.append(current["timestamp"] / 1_000_000.0)
+            if step >= self.sequence_length:
+                future_records.append(current)
             if len(frames) < self.sequence_length:
                 image = cv2.imread(str(Path(self.nusc.dataroot) / cam["filename"]))
                 image = cv2.resize(image, (self.image_size, self.image_size))
@@ -141,18 +192,43 @@ class NuScenesSequenceDataset(Dataset[dict[str, torch.Tensor]]):
             current = self.nusc.get("sample", current["next"])
         if len(positions) < self.sequence_length + self.future_steps:
             return self[(index + 1) % len(self)]
-        origin = np.asarray(positions[self.sequence_length - 1], dtype=np.float32)
-        future = np.asarray(positions[self.sequence_length :], dtype=np.float32) - origin
-        actions = np.zeros((self.future_steps, 3), dtype=np.float32)
-        position_deltas = np.diff(np.asarray(positions), axis=0)
-        speeds = np.linalg.norm(position_deltas, axis=1)
-        actions[:, 1] = speeds[-self.future_steps :]
+        positions_array = np.asarray(positions, dtype=np.float32)
+        history_index = self.sequence_length - 1
+        origin = positions_array[history_index]
+        future = global_to_ego(
+            positions_array[self.sequence_length :],
+            origin,
+            yaws[history_index],
+        ).astype(np.float32)
+        actions = derive_actions(
+            positions_array,
+            np.asarray(yaws),
+            np.asarray(timestamps),
+            history_index,
+            self.future_steps,
+        )
+        collision = self._has_collision(future_records, positions_array[self.sequence_length :])
         return {
             "frames": torch.stack(frames),
             "actions": torch.from_numpy(actions),
             "future_trajectory": torch.from_numpy(future),
-            "collision": torch.tensor(0.0),
+            "collision": torch.tensor(float(collision)),
         }
+
+    def _has_collision(
+        self,
+        future_records: list[dict],
+        ego_positions: np.ndarray,
+    ) -> bool:
+        for record, ego_position in zip(future_records, ego_positions, strict=True):
+            for annotation_token in record["anns"]:
+                annotation = self.nusc.get("sample_annotation", annotation_token)
+                object_position = np.asarray(annotation["translation"][:2])
+                width, length = annotation["size"][:2]
+                object_radius = 0.5 * np.hypot(width, length)
+                if np.linalg.norm(object_position - ego_position) < object_radius + 1.2:
+                    return True
+        return False
 
 
 def build_dataloaders(config: Config) -> tuple[DataLoader, DataLoader]:
@@ -180,6 +256,7 @@ def build_dataloaders(config: Config) -> tuple[DataLoader, DataLoader]:
             data.future_steps,
             data.image_size,
             config.seed,
+            data.collision_fraction,
         )
         val_set = SyntheticDrivingDataset(
             data.val_samples,
@@ -187,6 +264,7 @@ def build_dataloaders(config: Config) -> tuple[DataLoader, DataLoader]:
             data.future_steps,
             data.image_size,
             config.seed + 100_000,
+            data.collision_fraction,
         )
     else:
         raise ValueError(f"Unsupported data backend: {data.backend}")

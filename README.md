@@ -41,7 +41,58 @@ counterdrive-train --config configs/mvp.yaml
 counterdrive-evaluate --config configs/mvp.yaml --checkpoint checkpoints/best.pt
 ```
 
-For a fast CPU smoke test, reduce `train_samples`, `val_samples`, and `epochs`, and set `model.pretrained: false` if offline. Metrics are average displacement error (ADE), final displacement error (FDE), and collision accuracy/precision/recall.
+For a fast CPU smoke test, reduce `train_samples`, `val_samples`, and `epochs`,
+and set `model.pretrained: false` if offline. Evaluation reports ADE, FDE,
+collision accuracy, precision, recall, F1, AUROC, and average precision. The
+synthetic generator creates a configurable fraction of positive collisions.
+
+### Colab and persistent checkpoints
+
+Mount Google Drive before using the Phase 2 configuration:
+
+```python
+from google.colab import drive
+drive.mount("/content/drive")
+```
+
+Train with mixed precision while writing outputs directly to Drive:
+
+```bash
+counterdrive-train --config configs/colab_phase2.yaml
+```
+
+Every epoch updates `last.pt`; validation improvements update `best.pt`. Resume an
+interrupted run with:
+
+```bash
+counterdrive-train \
+  --config configs/colab_phase2.yaml \
+  --resume /content/drive/MyDrive/CounterDrive/checkpoints/phase2/last.pt
+```
+
+The same directory receives `history.json` and `run_metadata.json`, including the
+resolved device, versions, configuration, and resume source.
+
+### Baseline and counterfactual experiment
+
+Train the action-agnostic baseline with the same data and model capacity:
+
+```bash
+counterdrive-train --config configs/colab_baseline.yaml
+```
+
+Compare both models and visualize five action scenarios:
+
+```bash
+counterdrive-counterfactual \
+  --config configs/colab_phase2.yaml \
+  --checkpoint /content/drive/MyDrive/CounterDrive/checkpoints/phase2/best.pt \
+  --baseline-checkpoint /content/drive/MyDrive/CounterDrive/checkpoints/baseline/best.pt \
+  --output-dir /content/drive/MyDrive/CounterDrive/artifacts/counterfactual
+```
+
+This writes `counterfactual_report.json` and
+`counterfactual_trajectories.png`.
 
 ## Run the API
 
@@ -73,7 +124,12 @@ Example request shape:
 2. Install the optional adapter: `python -m pip install -e ".[dev,nuscenes]"`.
 3. Change `data.backend` in the YAML to `nuscenes` and set `data.root`.
 
-The initial adapter reads `CAM_FRONT`, derives future ego displacement from poses, and uses speed as the throttle proxy. nuScenes does not directly provide intervention/control or collision labels, so collision defaults to zero in this first adapter. That limitation should be addressed before treating nuScenes results as meaningful collision-risk evaluation.
+The adapter reads `CAM_FRONT`, converts future global poses into the current ego
+coordinate frame, and derives steering plus throttle/brake proxies from yaw rate and
+acceleration. It creates approximate collision-risk labels from future annotated
+object proximity and object dimensions. These remain proxy labels—nuScenes does not
+provide actual interventions or vehicle control commands—so they must not be treated
+as safety validation.
 
 ## Quality checks
 
@@ -90,14 +146,18 @@ src/counterdrive/
   data.py                synthetic and nuScenes-compatible sequences
   model.py               encoder, temporal state, dynamics, heads
   engine.py              losses and evaluation loop
-  metrics.py             ADE/FDE and collision metrics
+  metrics.py             ADE/FDE and extended collision metrics
   train.py               training/checkpoint CLI
   evaluate.py            evaluation CLI
   api.py                 FastAPI inference service
+  counterfactual.py      action comparisons and trajectory visualization
 tests/                   data, model, metrics, and API tests
 ```
 
 ## Next milestone
 
-The highest-value next step is **data realism and counterfactual supervision**, not a frontend. Add proper ego-frame coordinate transforms, CAN-bus/control signals, object tracks, and time-to-collision labels; then compare action-conditioned rollouts against an action-agnostic baseline. After that, add latent future-frame consistency or a lightweight decoder so predictions can be visually audited.
-
+The highest-value next step after Phase 2 is a **real nuScenes-mini experiment and
+label audit**, not a frontend. Inspect derived controls and risk labels, add explicit
+time-to-collision/object-track targets, and compare the conditioned model against the
+included action-agnostic baseline. After that, add latent future-frame consistency or
+a lightweight decoder so rollouts can be visually audited.

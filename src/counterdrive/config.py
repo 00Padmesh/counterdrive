@@ -19,6 +19,7 @@ class DataConfig:
     train_samples: int = 256
     val_samples: int = 64
     num_workers: int = 0
+    collision_fraction: float = 0.35
 
 
 @dataclass
@@ -31,6 +32,7 @@ class ModelConfig:
     transformer_layers: int = 2
     transformer_heads: int = 4
     dropout: float = 0.1
+    action_conditioned: bool = True
 
 
 @dataclass
@@ -43,6 +45,13 @@ class TrainingConfig:
     collision_loss_weight: float = 0.5
     latent_loss_weight: float = 0.1
     checkpoint_dir: str = "checkpoints"
+    mixed_precision: bool = True
+    gradient_clip_norm: float = 1.0
+    scheduler_patience: int = 2
+    scheduler_factor: float = 0.5
+    early_stopping_patience: int = 5
+    collision_positive_weight: float = 2.0
+    monitor: str = "ade"
 
 
 @dataclass
@@ -70,4 +79,3 @@ def load_config(path: str | Path) -> Config:
         model=ModelConfig(**raw.get("model", {})),
         training=TrainingConfig(**raw.get("training", {})),
     )
-

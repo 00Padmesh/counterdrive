@@ -12,4 +12,6 @@ def test_metrics_known_values() -> None:
     assert metrics["fde"] == pytest.approx(0.0)
     collision = collision_metrics(torch.tensor([-5.0, 5.0]), torch.tensor([0.0, 1.0]))
     assert collision["collision_accuracy"] == 1.0
-
+    assert collision["collision_f1"] == pytest.approx(1.0)
+    assert collision["collision_auroc"] == pytest.approx(1.0)
+    assert collision["collision_average_precision"] == pytest.approx(1.0)

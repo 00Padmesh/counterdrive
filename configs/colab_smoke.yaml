@@ -2,38 +2,36 @@ seed: 42
 device: auto
 data:
   backend: synthetic
-  root: data/nuscenes
-  version: v1.0-mini
   sequence_length: 4
   future_steps: 6
-  image_size: 96
-  train_samples: 256
-  val_samples: 64
-  num_workers: 0
-  collision_fraction: 0.35
+  image_size: 64
+  train_samples: 32
+  val_samples: 20
+  num_workers: 2
+  collision_fraction: 0.4
 model:
-  pretrained: true
+  pretrained: false
   freeze_vision: true
   unfreeze_layer4: false
-  latent_dim: 128
+  latent_dim: 64
   action_dim: 3
-  transformer_layers: 2
+  transformer_layers: 1
   transformer_heads: 4
   dropout: 0.1
   action_conditioned: true
 training:
-  epochs: 5
+  epochs: 1
   batch_size: 8
   learning_rate: 0.0003
   weight_decay: 0.0001
   trajectory_loss_weight: 1.0
   collision_loss_weight: 0.5
   latent_loss_weight: 0.1
-  checkpoint_dir: checkpoints
+  checkpoint_dir: checkpoints/smoke
   mixed_precision: true
   gradient_clip_norm: 1.0
   scheduler_patience: 2
   scheduler_factor: 0.5
   early_stopping_patience: 5
-  collision_positive_weight: 2.0
+  collision_positive_weight: 1.5
   monitor: ade
