@@ -122,9 +122,31 @@ Example request shape:
 
 ## nuScenes-mini
 
-1. Download and unpack nuScenes mini so `data/nuscenes` contains its maps, samples, sweeps, and `v1.0-mini` metadata.
+1. Download and unpack nuScenes mini so the configured root contains its maps,
+   samples, sweeps, and `v1.0-mini` metadata.
 2. Install the optional adapter: `python -m pip install -e ".[dev,nuscenes]"`.
-3. Change `data.backend` in the YAML to `nuscenes` and set `data.root`.
+3. Update `data.root` and `data.cache_dir` in `configs/nuscenes_mini.yaml`.
+
+Expected Drive layout for the included Colab configuration:
+
+```text
+MyDrive/CounterDrive/data/nuscenes/
+├── maps/
+├── samples/
+├── sweeps/
+└── v1.0-mini/
+```
+
+Before training, audit the derived samples:
+
+```bash
+counterdrive-audit \
+  --config configs/nuscenes_mini.yaml \
+  --output-dir /content/drive/MyDrive/CounterDrive/artifacts/nuscenes_audit
+```
+
+This produces `nuscenes_audit.json` with label/control ranges and
+`nuscenes_audit.png` with camera/trajectory panels. Review both before training.
 
 The adapter reads `CAM_FRONT`, converts future global poses into the current ego
 coordinate frame, and derives steering plus throttle/brake proxies from yaw rate and
@@ -132,6 +154,11 @@ acceleration. It creates approximate collision-risk labels from future annotated
 object proximity and object dimensions. These remain proxy labels—nuScenes does not
 provide actual interventions or vehicle control commands—so they must not be treated
 as safety validation.
+
+All valid temporal windows are indexed. Splits are made by scene rather than by
+individual frame, preventing adjacent windows from leaking between training and
+validation. Processed tensors are cached using a versioned key so later epochs do not
+redecode images or recompute poses.
 
 ## Quality checks
 
@@ -153,6 +180,7 @@ src/counterdrive/
   evaluate.py            evaluation CLI
   api.py                 FastAPI inference service
   counterfactual.py      action comparisons and trajectory visualization
+  audit.py               nuScenes label audit and visual QA
 tests/                   data, model, metrics, and API tests
 ```
 

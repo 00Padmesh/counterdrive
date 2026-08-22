@@ -17,6 +17,7 @@ ACTION_SCENARIOS: dict[str, tuple[float, float, float]] = {
     "turn_left": (-0.65, 0.35, 0.0),
     "turn_right": (0.65, 0.35, 0.0),
 }
+NUSCENES_CACHE_VERSION = 1
 
 
 @dataclass(frozen=True)
@@ -60,7 +61,8 @@ def derive_actions(
     yaw_deltas = np.arctan2(np.sin(yaw_changes), np.cos(yaw_changes))
     indices = np.arange(history_index, history_index + future_steps)
     actions = np.zeros((future_steps, 3), dtype=np.float32)
-    actions[:, 0] = np.clip(yaw_deltas[indices] / 0.5, -1.0, 1.0)
+    yaw_rates = yaw_deltas / elapsed
+    actions[:, 0] = np.clip(yaw_rates[indices] / 0.5, -1.0, 1.0)
     actions[:, 1] = np.clip(accelerations[indices] / 3.0, 0.0, 1.0)
     actions[:, 2] = np.clip(-accelerations[indices] / 5.0, 0.0, 1.0)
     return actions
@@ -76,6 +78,35 @@ def trajectory_for_action(
     longitudinal = times * speed
     lateral = 0.18 * steering * times.square()
     return torch.stack((lateral, longitudinal), dim=-1)
+
+
+def valid_window_starts(sample_tokens: list[str], required_steps: int) -> list[str]:
+    window_count = max(0, len(sample_tokens) - required_steps + 1)
+    return sample_tokens[:window_count]
+
+
+def scene_split_indices(
+    scene_tokens: list[str],
+    validation_fraction: float,
+    seed: int,
+) -> tuple[list[int], list[int]]:
+    scenes = sorted(set(scene_tokens))
+    if len(scenes) < 2:
+        raise ValueError("nuScenes requires at least two scenes for a clean split")
+    rng = np.random.default_rng(seed)
+    rng.shuffle(scenes)
+    validation_scene_count = max(1, round(len(scenes) * validation_fraction))
+    validation_scene_count = min(validation_scene_count, len(scenes) - 1)
+    validation_scenes = set(scenes[:validation_scene_count])
+    train_indices = [
+        index
+        for index, scene in enumerate(scene_tokens)
+        if scene not in validation_scenes
+    ]
+    validation_indices = [
+        index for index, scene in enumerate(scene_tokens) if scene in validation_scenes
+    ]
+    return train_indices, validation_indices
 
 
 class SyntheticDrivingDataset(Dataset[dict[str, torch.Tensor]]):
@@ -173,7 +204,7 @@ class SyntheticDrivingDataset(Dataset[dict[str, torch.Tensor]]):
 
 
 class NuScenesSequenceDataset(Dataset[dict[str, torch.Tensor]]):
-    """Minimal nuScenes-mini front-camera adapter with ego-motion trajectory labels."""
+    """Windowed nuScenes front-camera data with cached ego-frame targets."""
 
     def __init__(
         self,
@@ -182,6 +213,8 @@ class NuScenesSequenceDataset(Dataset[dict[str, torch.Tensor]]):
         sequence_length: int,
         future_steps: int,
         image_size: int,
+        cache_dir: str = "data/cache",
+        use_cache: bool = True,
     ):
         try:
             from nuscenes.nuscenes import NuScenes
@@ -191,12 +224,52 @@ class NuScenesSequenceDataset(Dataset[dict[str, torch.Tensor]]):
         self.sequence_length = sequence_length
         self.future_steps = future_steps
         self.image_size = image_size
-        self.tokens = [scene["first_sample_token"] for scene in self.nusc.scene]
+        self.use_cache = use_cache
+        self.cache_dir = Path(cache_dir) / version.replace(".", "_")
+        if self.use_cache:
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.tokens: list[str] = []
+        self.scene_tokens: list[str] = []
+        required_steps = sequence_length + future_steps
+        for scene in self.nusc.scene:
+            scene_samples = self._scene_sample_tokens(scene["first_sample_token"])
+            window_starts = valid_window_starts(scene_samples, required_steps)
+            self.tokens.extend(window_starts)
+            self.scene_tokens.extend([scene["token"]] * len(window_starts))
+        if not self.tokens:
+            raise ValueError(
+                "No valid nuScenes windows found; reduce sequence_length/future_steps"
+            )
+
+    def _scene_sample_tokens(self, first_token: str) -> list[str]:
+        tokens = []
+        token = first_token
+        while token:
+            tokens.append(token)
+            token = self.nusc.get("sample", token)["next"]
+        return tokens
+
+    def _cache_path(self, sample_token: str) -> Path:
+        name = (
+            f"v{NUSCENES_CACHE_VERSION}_{sample_token}_s{self.sequence_length}"
+            f"_f{self.future_steps}"
+            f"_i{self.image_size}.pt"
+        )
+        return self.cache_dir / name
 
     def __len__(self) -> int:
         return len(self.tokens)
 
     def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
+        cache_path = self._cache_path(self.tokens[index])
+        if self.use_cache and cache_path.exists():
+            return torch.load(cache_path, map_location="cpu", weights_only=True)
+        result = self._build_sample(index)
+        if self.use_cache:
+            torch.save(result, cache_path)
+        return result
+
+    def _build_sample(self, index: int) -> dict[str, torch.Tensor]:
         sample = self.nusc.get("sample", self.tokens[index])
         frames, positions, yaws, timestamps, future_records = [], [], [], [], []
         current = sample
@@ -210,23 +283,25 @@ class NuScenesSequenceDataset(Dataset[dict[str, torch.Tensor]]):
             if step >= self.sequence_length:
                 future_records.append(current)
             if len(frames) < self.sequence_length:
-                image = cv2.imread(str(Path(self.nusc.dataroot) / cam["filename"]))
+                image_path = Path(self.nusc.dataroot) / cam["filename"]
+                image = cv2.imread(str(image_path))
+                if image is None:
+                    raise FileNotFoundError(f"Unable to read nuScenes image: {image_path}")
                 image = cv2.resize(image, (self.image_size, self.image_size))
                 image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
                 frames.append(torch.from_numpy(image).permute(2, 0, 1).float() / 255.0)
             if not current["next"]:
                 break
             current = self.nusc.get("sample", current["next"])
-        if len(positions) < self.sequence_length + self.future_steps:
-            return self[(index + 1) % len(self)]
         positions_array = np.asarray(positions, dtype=np.float32)
         history_index = self.sequence_length - 1
         origin = positions_array[history_index]
-        future = global_to_ego(
+        future_forward_left = global_to_ego(
             positions_array[self.sequence_length :],
             origin,
             yaws[history_index],
         ).astype(np.float32)
+        future = future_forward_left[:, [1, 0]]
         actions = derive_actions(
             positions_array,
             np.asarray(yaws),
@@ -234,7 +309,10 @@ class NuScenesSequenceDataset(Dataset[dict[str, torch.Tensor]]):
             history_index,
             self.future_steps,
         )
-        collision = self._has_collision(future_records, positions_array[self.sequence_length :])
+        collision = self._has_collision(
+            future_records,
+            positions_array[self.sequence_length :],
+        )
         return {
             "frames": torch.stack(frames),
             "actions": torch.from_numpy(actions),
@@ -267,15 +345,16 @@ def build_dataloaders(config: Config) -> tuple[DataLoader, DataLoader]:
             data.sequence_length,
             data.future_steps,
             data.image_size,
+            data.cache_dir,
+            data.use_cache,
         )
-        train_size = max(1, int(0.8 * len(dataset)))
-        val_size = len(dataset) - train_size
-        generator = torch.Generator().manual_seed(config.seed)
-        train_set, val_set = torch.utils.data.random_split(
-            dataset,
-            [train_size, val_size],
-            generator=generator,
+        train_indices, validation_indices = scene_split_indices(
+            dataset.scene_tokens,
+            data.validation_fraction,
+            config.seed,
         )
+        train_set = torch.utils.data.Subset(dataset, train_indices)
+        val_set = torch.utils.data.Subset(dataset, validation_indices)
     elif data.backend == "synthetic":
         train_set = SyntheticDrivingDataset(
             data.train_samples,

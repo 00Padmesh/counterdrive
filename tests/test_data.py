@@ -7,6 +7,8 @@ from counterdrive.data import (
     derive_actions,
     global_to_ego,
     quaternion_yaw,
+    scene_split_indices,
+    valid_window_starts,
 )
 
 
@@ -62,3 +64,14 @@ def test_nuscenes_coordinate_and_action_helpers() -> None:
     assert np.all(actions[:, 0] > 0)
     assert np.all(actions[:, 1] > 0)
     assert np.all(actions[:, 2] == 0)
+
+
+def test_nuscenes_windows_and_scene_split_do_not_leak() -> None:
+    assert valid_window_starts(["a", "b", "c", "d"], 3) == ["a", "b"]
+    assert valid_window_starts(["a", "b"], 3) == []
+    scene_tokens = ["scene-a"] * 4 + ["scene-b"] * 3 + ["scene-c"] * 2
+    train_indices, validation_indices = scene_split_indices(scene_tokens, 0.34, seed=7)
+    train_scenes = {scene_tokens[index] for index in train_indices}
+    validation_scenes = {scene_tokens[index] for index in validation_indices}
+    assert train_scenes.isdisjoint(validation_scenes)
+    assert train_indices and validation_indices

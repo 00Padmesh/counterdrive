@@ -20,6 +20,9 @@ class DataConfig:
     val_samples: int = 64
     num_workers: int = 0
     collision_fraction: float = 1.0
+    cache_dir: str = "data/cache"
+    use_cache: bool = True
+    validation_fraction: float = 0.2
 
 
 @dataclass
