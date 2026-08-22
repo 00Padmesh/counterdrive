@@ -14,7 +14,12 @@ class TinyWorldModel(nn.Module):
         self.future_steps = future_steps
         self.scale = nn.Parameter(torch.tensor(0.1))
 
-    def forward(self, frames: torch.Tensor, actions: torch.Tensor):
+    def forward(
+        self,
+        frames: torch.Tensor,
+        actions: torch.Tensor,
+        _past_trajectory: torch.Tensor | None = None,
+    ):
         batch_size = frames.shape[0]
         trajectory = self.scale * actions[..., :2]
         collision_logits = self.scale.repeat(batch_size)
@@ -53,4 +58,3 @@ def test_training_checkpoint_and_resume(tmp_path, monkeypatch) -> None:
     checkpoint = torch.load(last_path, map_location="cpu", weights_only=False)
     assert checkpoint["epoch"] == 2
     assert len(checkpoint["history"]) == 2
-

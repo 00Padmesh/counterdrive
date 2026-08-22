@@ -57,7 +57,11 @@ def evaluate_model(
     trajectories, targets, logits, collisions = [], [], [], []
     for raw_batch in loader:
         batch = move_batch(raw_batch, device)
-        outputs = model(batch["frames"], batch["actions"])
+        outputs = model(
+            batch["frames"],
+            batch["actions"],
+            batch.get("past_trajectory"),
+        )
         trajectories.append(outputs["trajectory"].cpu())
         targets.append(batch["future_trajectory"].cpu())
         logits.append(outputs["collision_logits"].cpu())

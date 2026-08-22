@@ -42,3 +42,22 @@ def test_action_agnostic_baseline_ignores_actions() -> None:
     first = model(frames, torch.zeros(1, 3, 3))["trajectory"]
     second = model(frames, torch.ones(1, 3, 3))["trajectory"]
     assert torch.allclose(first, second)
+
+
+def test_kinematic_residual_starts_at_constant_velocity() -> None:
+    config = ModelConfig(
+        pretrained=False,
+        freeze_vision=True,
+        latent_dim=32,
+        transformer_layers=1,
+        transformer_heads=4,
+        dropout=0.0,
+        use_kinematic_residual=True,
+    )
+    model = CounterDriveModel(config, future_steps=3).eval()
+    frames = torch.rand(1, 2, 3, 64, 64)
+    actions = torch.zeros(1, 3, 3)
+    past = torch.tensor([[[-1.0, -2.0], [0.0, 0.0]]])
+    trajectory = model(frames, actions, past)["trajectory"]
+    expected = torch.tensor([[[1.0, 2.0], [2.0, 4.0], [3.0, 6.0]]])
+    torch.testing.assert_close(trajectory, expected)

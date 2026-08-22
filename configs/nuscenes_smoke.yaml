@@ -21,15 +21,16 @@ model:
   transformer_heads: 4
   dropout: 0.1
   action_conditioned: true
+  use_kinematic_residual: true
 training:
   epochs: 1
   batch_size: 8
   learning_rate: 0.0003
   weight_decay: 0.0001
   trajectory_loss_weight: 1.0
-  collision_loss_weight: 0.5
-  latent_loss_weight: 0.1
-  checkpoint_dir: /content/drive/MyDrive/CounterDrive/checkpoints/nuscenes_smoke
+  collision_loss_weight: 1.0
+  latent_loss_weight: 0.05
+  checkpoint_dir: /content/drive/MyDrive/CounterDrive/checkpoints/nuscenes_residual_smoke
   mixed_precision: true
   gradient_clip_norm: 1.0
   scheduler_patience: 2

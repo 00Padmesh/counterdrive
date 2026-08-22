@@ -47,6 +47,7 @@ def build_checkpoint(
     config: Config,
     epoch: int,
     best_metric: float,
+    best_collision_score: float,
     history: list[dict[str, float]],
 ) -> dict[str, Any]:
     return {
@@ -57,6 +58,7 @@ def build_checkpoint(
         "config": asdict(config),
         "epoch": epoch,
         "best_metric": best_metric,
+        "best_collision_score": best_collision_score,
         "history": history,
     }
 
@@ -82,12 +84,14 @@ def train(config: Config, resume: str | None = None) -> Path:
     checkpoint_dir = Path(config.training.checkpoint_dir)
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     best_path = checkpoint_dir / "best.pt"
+    best_collision_path = checkpoint_dir / "best_collision.pt"
     last_path = checkpoint_dir / "last.pt"
     history_path = checkpoint_dir / "history.json"
     metadata_path = checkpoint_dir / "run_metadata.json"
 
     start_epoch, epochs_without_improvement = 1, 0
     best_metric = float("inf")
+    best_collision_score = float("-inf")
     history: list[dict[str, float]] = []
     if resume:
         checkpoint = torch.load(resume, map_location=device, weights_only=False)
@@ -98,6 +102,9 @@ def train(config: Config, resume: str | None = None) -> Path:
             scaler.load_state_dict(checkpoint.get("scaler", {}))
             start_epoch = int(checkpoint["epoch"]) + 1
             best_metric = float(checkpoint["best_metric"])
+            best_collision_score = float(
+                checkpoint.get("best_collision_score", float("-inf"))
+            )
             history = checkpoint.get("history", [])
 
     metadata = {
@@ -124,7 +131,11 @@ def train(config: Config, resume: str | None = None) -> Path:
                 dtype=torch.float16,
                 enabled=amp_enabled,
             ):
-                outputs = model(batch["frames"], batch["actions"])
+                outputs = model(
+                    batch["frames"],
+                    batch["actions"],
+                    batch.get("past_trajectory"),
+                )
                 loss, _ = compute_loss(
                     outputs,
                     batch,
@@ -155,11 +166,15 @@ def train(config: Config, resume: str | None = None) -> Path:
         history.append(epoch_result)
         print(json.dumps(epoch_result, allow_nan=True))
         improved = monitored < best_metric
+        collision_score = float(metrics["collision_average_precision"])
+        collision_improved = collision_score > best_collision_score
         if improved:
             best_metric = monitored
             epochs_without_improvement = 0
         else:
             epochs_without_improvement += 1
+        if collision_improved:
+            best_collision_score = collision_score
         checkpoint = build_checkpoint(
             model,
             optimizer,
@@ -168,11 +183,14 @@ def train(config: Config, resume: str | None = None) -> Path:
             config,
             epoch,
             best_metric,
+            best_collision_score,
             history,
         )
         torch.save(checkpoint, last_path)
         if improved:
             torch.save(checkpoint, best_path)
+        if collision_improved:
+            torch.save(checkpoint, best_collision_path)
         save_json(history_path, history)
         if epochs_without_improvement >= config.training.early_stopping_patience:
             print(f"Early stopping after epoch {epoch}")

@@ -56,6 +56,7 @@ class CounterDriveModel(nn.Module):
         dim = config.latent_dim
         self.future_steps = future_steps
         self.action_conditioned = config.action_conditioned
+        self.use_kinematic_residual = config.use_kinematic_residual
         self.frame_encoder = FrameEncoder(
             dim,
             config.pretrained,
@@ -98,6 +99,9 @@ class CounterDriveModel(nn.Module):
             nn.GELU(),
             nn.Linear(dim, 2),
         )
+        if self.use_kinematic_residual:
+            nn.init.zeros_(self.trajectory_head[-1].weight)
+            nn.init.zeros_(self.trajectory_head[-1].bias)
         self.collision_head = nn.Sequential(
             nn.LayerNorm(dim),
             nn.Linear(dim, dim // 2),
@@ -105,7 +109,12 @@ class CounterDriveModel(nn.Module):
             nn.Linear(dim // 2, 1),
         )
 
-    def forward(self, frames: torch.Tensor, actions: torch.Tensor) -> dict[str, torch.Tensor]:
+    def forward(
+        self,
+        frames: torch.Tensor,
+        actions: torch.Tensor,
+        past_trajectory: torch.Tensor | None = None,
+    ) -> dict[str, torch.Tensor]:
         history = self.temporal_encoder(self.frame_encoder(frames))
         current_state = history[:, -1:, :]
         if not self.action_conditioned:
@@ -113,6 +122,18 @@ class CounterDriveModel(nn.Module):
         dynamics_input = current_state + self.action_encoder(actions) + self.step_embedding
         future_latents = self.dynamics(dynamics_input)
         trajectory = self.trajectory_head(future_latents)
+        if self.use_kinematic_residual:
+            if past_trajectory is None or past_trajectory.shape[1] < 2:
+                raise ValueError("Kinematic residual mode requires at least two past positions")
+            velocity = past_trajectory[:, -1] - past_trajectory[:, -2]
+            steps = torch.arange(
+                1,
+                self.future_steps + 1,
+                dtype=trajectory.dtype,
+                device=trajectory.device,
+            )
+            baseline = velocity.unsqueeze(1) * steps.view(1, -1, 1)
+            trajectory = baseline + trajectory
         collision_logits = self.collision_head(future_latents.mean(dim=1)).squeeze(-1)
         return {
             "trajectory": trajectory,

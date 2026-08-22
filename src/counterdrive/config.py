@@ -36,6 +36,7 @@ class ModelConfig:
     transformer_heads: int = 4
     dropout: float = 0.1
     action_conditioned: bool = True
+    use_kinematic_residual: bool = False
 
 
 @dataclass

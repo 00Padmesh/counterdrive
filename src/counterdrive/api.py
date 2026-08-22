@@ -25,6 +25,10 @@ class Action(BaseModel):
 class PredictionRequest(BaseModel):
     frames: list[str] = Field(description="Base64-encoded JPEG or PNG frames, oldest first")
     actions: list[Action]
+    past_trajectory: list[list[float]] | None = Field(
+        default=None,
+        description="Optional observed ego positions as [lateral, longitudinal]",
+    )
 
     @field_validator("frames", "actions")
     @classmethod
@@ -94,10 +98,31 @@ def create_app(
             for action in request.actions
         ]
         actions = torch.tensor(action_values).unsqueeze(0)
+        past_trajectory = None
+        if request.past_trajectory is not None:
+            if len(request.past_trajectory) != config.data.sequence_length:
+                detail = f"Expected {config.data.sequence_length} past positions"
+                raise HTTPException(status_code=422, detail=detail)
+            if any(len(position) != 2 for position in request.past_trajectory):
+                raise HTTPException(
+                    status_code=422,
+                    detail="Each past position must contain two coordinates",
+                )
+            past_trajectory = torch.tensor(request.past_trajectory).unsqueeze(0)
+        elif config.model.use_kinematic_residual:
+            raise HTTPException(
+                status_code=422,
+                detail="This model requires past_trajectory",
+            )
         with torch.inference_mode():
             outputs = app.state.model(
                 frames.to(config.resolved_device),
                 actions.to(config.resolved_device),
+                (
+                    past_trajectory.to(config.resolved_device)
+                    if past_trajectory is not None
+                    else None
+                ),
             )
         return PredictionResponse(
             trajectory=outputs["trajectory"][0].cpu().tolist(),

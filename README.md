@@ -73,6 +73,8 @@ counterdrive-train \
 
 The same directory receives `history.json` and `run_metadata.json`, including the
 resolved device, versions, configuration, and resume source.
+Training also saves `best_collision.pt` using validation average precision, keeping
+collision model selection independent from trajectory ADE.
 
 ### Baseline and counterfactual experiment
 
@@ -155,7 +157,7 @@ configuration:
 counterdrive-train --config configs/nuscenes_smoke.yaml
 counterdrive-evaluate \
   --config configs/nuscenes_smoke.yaml \
-  --checkpoint /content/drive/MyDrive/CounterDrive/checkpoints/nuscenes_smoke/best.pt
+  --checkpoint /content/drive/MyDrive/CounterDrive/checkpoints/nuscenes_residual_smoke/best.pt
 ```
 
 Measure simple real-data trajectory baselines before the full training run:
@@ -167,6 +169,11 @@ counterdrive-baselines --config configs/nuscenes_mini.yaml
 The stationary baseline always predicts no movement. The constant-velocity baseline
 extrapolates the last observed ego displacement. A useful learned model should improve
 on at least the stationary baseline and ideally constant velocity.
+
+The nuScenes configurations use a kinematic-residual trajectory head: constant
+velocity supplies the initial forecast and the network learns corrections from video
+and future actions. API requests for these models must include `past_trajectory` with
+one lateral/longitudinal position per observed frame.
 
 The adapter reads `CAM_FRONT`, converts future global poses into the current ego
 coordinate frame, and derives steering plus throttle/brake proxies from yaw rate and
