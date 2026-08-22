@@ -9,7 +9,7 @@ import numpy as np
 import torch
 
 from counterdrive.config import Config, load_config
-from counterdrive.data import SyntheticDrivingDataset, build_dataloaders
+from counterdrive.data import build_dataloaders, SyntheticDrivingDataset
 from counterdrive.engine import evaluate_model
 from counterdrive.model import CounterDriveModel
 

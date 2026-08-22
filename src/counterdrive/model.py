@@ -70,7 +70,11 @@ class CounterDriveModel(nn.Module):
             batch_first=True,
             norm_first=True,
         )
-        self.temporal_encoder = nn.TransformerEncoder(encoder_layer, config.transformer_layers)
+        self.temporal_encoder = nn.TransformerEncoder(
+            encoder_layer,
+            config.transformer_layers,
+            enable_nested_tensor=False,
+        )
         self.action_encoder = nn.Sequential(
             nn.Linear(config.action_dim, dim), nn.GELU(), nn.Linear(dim, dim)
         )
@@ -82,7 +86,11 @@ class CounterDriveModel(nn.Module):
             batch_first=True,
             norm_first=True,
         )
-        self.dynamics = nn.TransformerEncoder(dynamics_layer, config.transformer_layers)
+        self.dynamics = nn.TransformerEncoder(
+            dynamics_layer,
+            config.transformer_layers,
+            enable_nested_tensor=False,
+        )
         self.step_embedding = nn.Parameter(torch.randn(1, future_steps, dim) * 0.02)
         self.trajectory_head = nn.Sequential(
             nn.LayerNorm(dim),
