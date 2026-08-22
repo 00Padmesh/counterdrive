@@ -148,6 +148,16 @@ counterdrive-audit \
 This produces `nuscenes_audit.json` with label/control ranges and
 `nuscenes_audit.png` with camera/trajectory panels. Review both before training.
 
+After the audit passes, validate one complete real-data epoch before using the full
+configuration:
+
+```bash
+counterdrive-train --config configs/nuscenes_smoke.yaml
+counterdrive-evaluate \
+  --config configs/nuscenes_smoke.yaml \
+  --checkpoint /content/drive/MyDrive/CounterDrive/checkpoints/nuscenes_smoke/best.pt
+```
+
 The adapter reads `CAM_FRONT`, converts future global poses into the current ego
 coordinate frame, and derives steering plus throttle/brake proxies from yaw rate and
 acceleration. It creates approximate proximity-risk labels by testing the future ego
