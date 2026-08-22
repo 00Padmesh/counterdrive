@@ -30,6 +30,7 @@ counterdrive-evaluate = "counterdrive.evaluate:main"
 counterdrive-api = "counterdrive.api:main"
 counterdrive-counterfactual = "counterdrive.counterfactual:main"
 counterdrive-audit = "counterdrive.audit:main"
+counterdrive-baselines = "counterdrive.baselines:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

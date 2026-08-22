@@ -17,7 +17,7 @@ ACTION_SCENARIOS: dict[str, tuple[float, float, float]] = {
     "turn_left": (-0.65, 0.35, 0.0),
     "turn_right": (0.65, 0.35, 0.0),
 }
-NUSCENES_CACHE_VERSION = 2
+NUSCENES_CACHE_VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -316,6 +316,12 @@ class NuScenesSequenceDataset(Dataset[dict[str, torch.Tensor]]):
         positions_array = np.asarray(positions, dtype=np.float32)
         history_index = self.sequence_length - 1
         origin = positions_array[history_index]
+        past_forward_left = global_to_ego(
+            positions_array[: self.sequence_length],
+            origin,
+            yaws[history_index],
+        ).astype(np.float32)
+        past = past_forward_left[:, [1, 0]]
         future_forward_left = global_to_ego(
             positions_array[self.sequence_length :],
             origin,
@@ -337,6 +343,7 @@ class NuScenesSequenceDataset(Dataset[dict[str, torch.Tensor]]):
             "frames": torch.stack(frames),
             "actions": torch.from_numpy(actions),
             "future_trajectory": torch.from_numpy(future),
+            "past_trajectory": torch.from_numpy(past),
             "collision": torch.tensor(float(collision)),
         }
 

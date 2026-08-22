@@ -158,6 +158,16 @@ counterdrive-evaluate \
   --checkpoint /content/drive/MyDrive/CounterDrive/checkpoints/nuscenes_smoke/best.pt
 ```
 
+Measure simple real-data trajectory baselines before the full training run:
+
+```bash
+counterdrive-baselines --config configs/nuscenes_mini.yaml
+```
+
+The stationary baseline always predicts no movement. The constant-velocity baseline
+extrapolates the last observed ego displacement. A useful learned model should improve
+on at least the stationary baseline and ideally constant velocity.
+
 The adapter reads `CAM_FRONT`, converts future global poses into the current ego
 coordinate frame, and derives steering plus throttle/brake proxies from yaw rate and
 acceleration. It creates approximate proximity-risk labels by testing the future ego
