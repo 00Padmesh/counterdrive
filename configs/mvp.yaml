@@ -1,0 +1,31 @@
+seed: 42
+device: auto
+data:
+  backend: synthetic
+  root: data/nuscenes
+  version: v1.0-mini
+  sequence_length: 4
+  future_steps: 6
+  image_size: 96
+  train_samples: 256
+  val_samples: 64
+  num_workers: 0
+model:
+  pretrained: true
+  freeze_vision: true
+  unfreeze_layer4: false
+  latent_dim: 128
+  action_dim: 3
+  transformer_layers: 2
+  transformer_heads: 4
+  dropout: 0.1
+training:
+  epochs: 5
+  batch_size: 8
+  learning_rate: 0.0003
+  weight_decay: 0.0001
+  trajectory_loss_weight: 1.0
+  collision_loss_weight: 0.5
+  latent_loss_weight: 0.1
+  checkpoint_dir: checkpoints
+
