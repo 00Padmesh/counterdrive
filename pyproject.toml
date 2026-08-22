@@ -31,6 +31,7 @@ counterdrive-api = "counterdrive.api:main"
 counterdrive-counterfactual = "counterdrive.counterfactual:main"
 counterdrive-audit = "counterdrive.audit:main"
 counterdrive-baselines = "counterdrive.baselines:main"
+counterdrive-export-sample = "counterdrive.export_sample:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

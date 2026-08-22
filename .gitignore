@@ -8,6 +8,7 @@ frontend/node_modules/
 frontend/dist/
 frontend/.env
 frontend/*.tsbuildinfo
+frontend/public/examples/nuscenes_scene/
 .pnpm-store/
 artifacts/
 data/

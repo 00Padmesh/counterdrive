@@ -73,6 +73,7 @@ function App() {
   const [active, setActive] = useState<ScenarioName>("maintain");
   const [results, setResults] = useState<Record<ScenarioName, Prediction>>(demo);
   const [frames, setFrames] = useState<string[]>([]);
+  const [exportedPast, setExportedPast] = useState<number[][] | null>(null);
   const [speed, setSpeed] = useState(4);
   const [status, setStatus] = useState<"checking" | "online" | "offline">("checking");
   const [running, setRunning] = useState(false);
@@ -85,7 +86,8 @@ function App() {
     }).catch(() => setStatus("offline"));
   }, []);
 
-  const pastTrajectory = useMemo(() => [-3, -2, -1, 0].map((step) => [0, step * speed * .5]), [speed]);
+  const generatedPast = useMemo(() => [-3, -2, -1, 0].map((step) => [0, step * speed * .5]), [speed]);
+  const pastTrajectory = exportedPast ?? generatedPast;
   const selected = results[active];
 
   const onFrames = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -97,7 +99,63 @@ function App() {
       reader.readAsDataURL(file);
     })));
     setFrames(encoded);
+    setExportedPast(null);
     setMessage(encoded.length === 4 ? "Four frames ready for a live rollout." : `Add ${4 - encoded.length} more frame${4 - encoded.length === 1 ? "" : "s"}.`);
+  };
+
+  const loadSyntheticExample = () => {
+    const generated = Array.from({ length: 4 }, (_, step) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 160;
+      canvas.height = 160;
+      const context = canvas.getContext("2d")!;
+      context.fillStyle = "#232923";
+      context.fillRect(0, 0, 160, 160);
+      context.fillStyle = "#3d443e";
+      context.fillRect(0, 48, 160, 112);
+      context.strokeStyle = "#ece9d9";
+      context.lineWidth = 3;
+      context.beginPath();
+      context.moveTo(52, 160);
+      context.lineTo(70, 48);
+      context.moveTo(108, 160);
+      context.lineTo(90, 48);
+      context.stroke();
+      context.fillStyle = "#ef684f";
+      context.beginPath();
+      context.arc(80, 86 + step * 6, 6 + step, 0, Math.PI * 2);
+      context.fill();
+      return canvas.toDataURL("image/jpeg", .9);
+    });
+    setFrames(generated);
+    setExportedPast(null);
+    setMessage("Bundled synthetic scene loaded. Start the API to run it live.");
+  };
+
+  const loadExportedScene = async () => {
+    setMessage("Looking for the latest exported nuScenes scene…");
+    try {
+      const response = await fetch("/examples/nuscenes_scene/scene.json", { cache: "no-store" });
+      if (!response.ok) throw new Error("No exported scene found. Run counterdrive-export-sample first.");
+      const manifest = await response.json();
+      const base = "/examples/nuscenes_scene/";
+      const encoded = await Promise.all(manifest.frames.map(async (name: string) => {
+        const imageResponse = await fetch(base + name, { cache: "no-store" });
+        if (!imageResponse.ok) throw new Error(`Missing exported frame: ${name}`);
+        const blob = await imageResponse.blob();
+        return await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(blob);
+        });
+      }));
+      setFrames(encoded);
+      setExportedPast(manifest.past_trajectory);
+      setMessage(`${manifest.name} loaded with its measured ego history.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to load the exported scene.");
+    }
   };
 
   const runLive = async () => {
@@ -124,6 +182,7 @@ function App() {
   const resetDemo = () => {
     setResults(demo);
     setFrames([]);
+    setExportedPast(null);
     setMessage("Showing the validated synthetic counterfactual run.");
   };
 
@@ -154,7 +213,12 @@ function App() {
               </button>
             ))}
             <div className="upload-block">
+              <div className="example-actions">
+                <button onClick={loadSyntheticExample}>Load synthetic</button>
+                <button onClick={loadExportedScene}>Load exported</button>
+              </div>
               <label className="upload-button"><Upload size={17} /><span>{frames.length ? `${frames.length}/4 frames` : "Choose 4 frames"}</span><input type="file" accept="image/*" multiple onChange={onFrames} /></label>
+              {frames.length > 0 && <div className="frame-strip">{frames.map((frame, index) => <img key={index} src={frame} alt={`Input frame ${index + 1}`} />)}</div>}
               <label className="speed-control"><span>Observed speed <b>{speed} m/s</b></span><input type="range" min="1" max="15" value={speed} onChange={(event) => setSpeed(Number(event.target.value))} /></label>
               <button className="run-button" onClick={runLive} disabled={status !== "online" || frames.length !== 4 || running}><Play size={16} fill="currentColor" />{running ? "Running…" : "Run live model"}</button>
               <button className="reset-button" onClick={resetDemo}><RotateCcw size={15} /> Reset demo</button>

@@ -176,6 +176,34 @@ pnpm lint
 Docker is intentionally not required. Run FastAPI in one terminal and Vite in a
 second terminal.
 
+### Export a demo scene
+
+Create the same deterministic nuScenes example every time with:
+
+```bash
+counterdrive-export-sample \
+  --config configs/nuscenes_mini.yaml \
+  --index 0 \
+  --output-dir frontend/public/examples/nuscenes_scene
+```
+
+Then press **Load exported** in the frontend. It reads the four camera frames and
+their matching ego-position history automatically. To select another fixed window,
+change `--index`. To explore a reproducible random window, use:
+
+```bash
+counterdrive-export-sample \
+  --config configs/nuscenes_mini.yaml \
+  --random --seed 42 \
+  --output-dir frontend/public/examples/nuscenes_scene
+```
+
+When nuScenes exists only in Colab/Drive, export to a Drive directory, download the
+resulting `nuscenes_scene` folder, and place it under
+`frontend/public/examples/`. Dataset images are intentionally not committed to the
+repository. The **Load synthetic** button needs no exported files and is always
+available.
+
 ## nuScenes-mini
 
 1. Download and unpack nuScenes mini so the configured root contains its maps,
