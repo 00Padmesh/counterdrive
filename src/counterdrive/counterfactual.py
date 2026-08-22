@@ -13,7 +13,6 @@ from counterdrive.data import SyntheticDrivingDataset, build_dataloaders
 from counterdrive.engine import evaluate_model
 from counterdrive.model import CounterDriveModel
 
-
 SCENARIOS: dict[str, tuple[float, float, float]] = {
     "hard_brake": (0.0, 0.0, 1.0),
     "maintain": (0.0, 0.45, 0.0),
