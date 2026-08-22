@@ -10,6 +10,14 @@ from torch.utils.data import DataLoader, Dataset
 
 from counterdrive.config import Config
 
+ACTION_SCENARIOS: dict[str, tuple[float, float, float]] = {
+    "hard_brake": (0.0, 0.0, 1.0),
+    "maintain": (0.0, 0.45, 0.0),
+    "accelerate": (0.0, 1.0, 0.0),
+    "turn_left": (-0.65, 0.35, 0.0),
+    "turn_right": (0.65, 0.35, 0.0),
+}
+
 
 @dataclass(frozen=True)
 class DrivingSample:
@@ -17,6 +25,7 @@ class DrivingSample:
     actions: torch.Tensor
     future_trajectory: torch.Tensor
     collision: torch.Tensor
+    obstacle_position: torch.Tensor | None = None
 
 
 def quaternion_yaw(rotation: list[float]) -> float:
@@ -57,6 +66,18 @@ def derive_actions(
     return actions
 
 
+def trajectory_for_action(
+    action: tuple[float, float, float],
+    future_steps: int,
+) -> torch.Tensor:
+    steering, throttle, brake = action
+    speed = max(0.15, throttle - 0.65 * brake + 0.25)
+    times = torch.arange(1, future_steps + 1, dtype=torch.float32)
+    longitudinal = times * speed
+    lateral = 0.18 * steering * times.square()
+    return torch.stack((lateral, longitudinal), dim=-1)
+
+
 class SyntheticDrivingDataset(Dataset[dict[str, torch.Tensor]]):
     """Deterministic toy scenes whose future depends on steering, throttle, and brake."""
 
@@ -80,17 +101,21 @@ class SyntheticDrivingDataset(Dataset[dict[str, torch.Tensor]]):
         return self.samples
 
     def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
-        rng = np.random.default_rng(self.seed + index)
-        steering = float(rng.uniform(-0.7, 0.7))
-        throttle = float(rng.uniform(0.0, 1.0))
-        brake = float(rng.uniform(0.0, 0.7))
-        speed = max(0.15, throttle - 0.65 * brake + 0.25)
-        collision_bucket = (index * 37) % 100
-        is_collision = collision_bucket < round(self.collision_fraction * 100)
-        collision_step = int(rng.integers(1, self.future_steps + 1))
-        if is_collision:
-            obstacle_x = 0.18 * steering * collision_step**2
-            obstacle_y = collision_step * speed
+        scenario_values = list(ACTION_SCENARIOS.values())
+        scenario_count = len(scenario_values)
+        scene_index, action_index = divmod(index, scenario_count)
+        rng = np.random.default_rng(self.seed + scene_index)
+        history_speed = float(rng.uniform(0.25, 0.8))
+        has_reachable_obstacle = rng.random() < self.collision_fraction
+        if has_reachable_obstacle:
+            target_action_index = int(rng.integers(1, scenario_count))
+            target_trajectory = trajectory_for_action(
+                scenario_values[target_action_index],
+                self.future_steps,
+            )
+            earliest_step = max(1, self.future_steps // 2)
+            collision_step = int(rng.integers(earliest_step, self.future_steps))
+            obstacle_x, obstacle_y = target_trajectory[collision_step].tolist()
         else:
             obstacle_x = float(rng.choice([-1.0, 1.0]) * rng.uniform(8.0, 10.0))
             obstacle_y = float(rng.uniform(2.5, 8.0))
@@ -116,7 +141,7 @@ class SyntheticDrivingDataset(Dataset[dict[str, torch.Tensor]]):
                 (220, 220, 220),
                 2,
             )
-            scale = 1.0 / max(obstacle_y - step * 0.15 * speed, 0.5)
+            scale = 1.0 / max(obstacle_y - step * 0.15 * history_speed, 0.5)
             px = int(center + obstacle_x * self.image_size * 0.22 * scale)
             py = int(horizon + self.image_size * 0.6 * scale)
             obstacle_center = (
@@ -126,23 +151,24 @@ class SyntheticDrivingDataset(Dataset[dict[str, torch.Tensor]]):
             cv2.circle(image, obstacle_center, 3, (0, 0, 255), -1)
             frames.append(torch.from_numpy(image).permute(2, 0, 1).float() / 255.0)
 
-        times = torch.arange(1, self.future_steps + 1, dtype=torch.float32)
-        longitudinal = times * speed
-        lateral = 0.18 * steering * times.square()
-        trajectory = torch.stack((lateral, longitudinal), dim=-1)
+        action = scenario_values[action_index]
+        trajectory = trajectory_for_action(action, self.future_steps)
         squared_distance = (
-            (lateral - obstacle_x).square()
-            + (longitudinal - obstacle_y).square()
+            (trajectory[:, 0] - obstacle_x).square()
+            + (trajectory[:, 1] - obstacle_y).square()
         )
         min_distance = torch.sqrt(squared_distance).min()
         collision = (min_distance < 0.9).float()
-        action = torch.tensor([steering, throttle, brake], dtype=torch.float32)
-        actions = action.repeat(self.future_steps, 1)
+        action_tensor = torch.tensor(action, dtype=torch.float32)
+        actions = action_tensor.repeat(self.future_steps, 1)
         return {
             "frames": torch.stack(frames),
             "actions": actions,
             "future_trajectory": trajectory,
             "collision": collision,
+            "obstacle_position": torch.tensor(
+                [obstacle_x, obstacle_y], dtype=torch.float32
+            ),
         }
 
 

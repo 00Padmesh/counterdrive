@@ -28,12 +28,20 @@ def test_synthetic_dataset_balances_collision_labels() -> None:
         future_steps=4,
         image_size=32,
         seed=11,
-        collision_fraction=0.4,
+        collision_fraction=1.0,
     )
     positives = sum(int(dataset[index]["collision"].item()) for index in range(100))
-    assert positives == 40
-    first_twenty = {int(dataset[index]["collision"].item()) for index in range(20)}
-    assert first_twenty == {0, 1}
+    assert 20 <= positives <= 80
+    for scene_start in range(0, 100, 5):
+        scene_samples = [dataset[scene_start + offset] for offset in range(5)]
+        reference_frames = scene_samples[0]["frames"]
+        assert all(torch.equal(sample["frames"], reference_frames) for sample in scene_samples)
+        unique_actions = {
+            tuple(sample["actions"][0].tolist()) for sample in scene_samples
+        }
+        assert len(unique_actions) == 5
+        labels = {int(sample["collision"].item()) for sample in scene_samples}
+        assert labels == {0, 1}
 
 
 def test_nuscenes_coordinate_and_action_helpers() -> None:

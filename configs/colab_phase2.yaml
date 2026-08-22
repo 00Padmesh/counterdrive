@@ -8,7 +8,7 @@ data:
   train_samples: 2048
   val_samples: 512
   num_workers: 2
-  collision_fraction: 0.35
+  collision_fraction: 1.0
 model:
   pretrained: true
   freeze_vision: true
@@ -27,7 +27,7 @@ training:
   trajectory_loss_weight: 1.0
   collision_loss_weight: 0.5
   latent_loss_weight: 0.1
-  checkpoint_dir: /content/drive/MyDrive/CounterDrive/checkpoints/phase2
+  checkpoint_dir: /content/drive/MyDrive/CounterDrive/checkpoints/phase2_counterfactual
   mixed_precision: true
   gradient_clip_norm: 1.0
   scheduler_patience: 2

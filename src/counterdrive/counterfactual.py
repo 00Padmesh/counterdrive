@@ -9,17 +9,15 @@ import numpy as np
 import torch
 
 from counterdrive.config import Config, load_config
-from counterdrive.data import SyntheticDrivingDataset, build_dataloaders
+from counterdrive.data import (
+    ACTION_SCENARIOS,
+    SyntheticDrivingDataset,
+    build_dataloaders,
+)
 from counterdrive.engine import evaluate_model
 from counterdrive.model import CounterDriveModel
 
-SCENARIOS: dict[str, tuple[float, float, float]] = {
-    "hard_brake": (0.0, 0.0, 1.0),
-    "maintain": (0.0, 0.45, 0.0),
-    "accelerate": (0.0, 1.0, 0.0),
-    "turn_left": (-0.65, 0.35, 0.0),
-    "turn_right": (0.65, 0.35, 0.0),
-}
+SCENARIOS = ACTION_SCENARIOS
 
 
 def load_model(config: Config, checkpoint_path: str) -> CounterDriveModel:
@@ -40,6 +38,7 @@ def predict_scenarios(
     frames: torch.Tensor,
     future_steps: int,
     device: str,
+    expected_collisions: dict[str, int] | None = None,
 ) -> dict[str, dict[str, object]]:
     frames = frames.unsqueeze(0).to(device)
     results: dict[str, dict[str, object]] = {}
@@ -54,12 +53,15 @@ def predict_scenarios(
                 outputs["collision_logits"][0]
             ).item(),
         }
+        if expected_collisions is not None:
+            results[name]["ground_truth_collision"] = expected_collisions[name]
     return results
 
 
 def render_trajectories(
     results: dict[str, dict[str, object]],
     output_path: Path,
+    obstacle_position: list[float] | None = None,
 ) -> None:
     width, height = 800, 600
     canvas = np.full((height, width, 3), 248, dtype=np.uint8)
@@ -72,6 +74,12 @@ def render_trajectories(
         "turn_right": (180, 160, 30),
     }
     cv2.line(canvas, (origin[0], 40), tuple(origin), (190, 190, 190), 2)
+    if obstacle_position is not None:
+        obstacle = (
+            int(origin[0] + obstacle_position[0] * 42.0),
+            int(origin[1] - obstacle_position[1] * 42.0),
+        )
+        cv2.circle(canvas, obstacle, 10, (30, 30, 220), -1)
     cv2.putText(
         canvas,
         "CounterDrive action-conditioned futures",
@@ -92,7 +100,9 @@ def render_trajectories(
         for point in points:
             cv2.circle(canvas, tuple(point), 4, color, -1)
         risk = float(result["collision_probability"])
-        label = f"{name}: risk={risk:.3f}"
+        expected = result.get("ground_truth_collision")
+        suffix = f", target={expected}" if expected is not None else ""
+        label = f"{name}: risk={risk:.3f}{suffix}"
         cv2.putText(
             canvas,
             label,
@@ -122,10 +132,23 @@ def action_sensitivity(results: dict[str, dict[str, object]]) -> dict[str, float
         [result["collision_probability"] for result in results.values()],
         dtype=np.float32,
     )
-    return {
+    metrics = {
         "mean_pairwise_final_displacement": float(np.mean(pairwise_distances)),
         "collision_probability_range": float(risks.max() - risks.min()),
     }
+    if all("ground_truth_collision" in result for result in results.values()):
+        labels = np.asarray(
+            [result["ground_truth_collision"] for result in results.values()],
+            dtype=np.float32,
+        )
+        positive_risk = float(risks[labels == 1].mean())
+        negative_risk = float(risks[labels == 0].mean())
+        predictions = (risks >= 0.5).astype(np.float32)
+        metrics["counterfactual_collision_accuracy"] = float(
+            np.mean(predictions == labels)
+        )
+        metrics["positive_negative_risk_gap"] = positive_risk - negative_risk
+    return metrics
 
 
 def run_experiment(
@@ -135,7 +158,7 @@ def run_experiment(
     baseline_checkpoint: str | None = None,
 ) -> dict[str, object]:
     dataset = SyntheticDrivingDataset(
-        samples=1,
+        samples=len(SCENARIOS),
         sequence_length=config.data.sequence_length,
         future_steps=config.data.future_steps,
         image_size=config.data.image_size,
@@ -143,12 +166,17 @@ def run_experiment(
         collision_fraction=1.0,
     )
     sample = dataset[0]
+    expected_collisions = {
+        name: int(dataset[index]["collision"].item())
+        for index, name in enumerate(SCENARIOS)
+    }
     model = load_model(config, checkpoint_path)
     scenarios = predict_scenarios(
         model,
         sample["frames"],
         config.data.future_steps,
         config.resolved_device,
+        expected_collisions,
     )
     _, validation_loader = build_dataloaders(config)
     report: dict[str, object] = {
@@ -156,6 +184,9 @@ def run_experiment(
             model, validation_loader, config.resolved_device
         ),
         "action_sensitivity": action_sensitivity(scenarios),
+        "scene": {
+            "obstacle_position": sample["obstacle_position"].tolist(),
+        },
         "scenarios": scenarios,
     }
     if baseline_checkpoint:
@@ -166,8 +197,22 @@ def run_experiment(
             validation_loader,
             baseline_config.resolved_device,
         )
+        baseline_scenarios = predict_scenarios(
+            baseline,
+            sample["frames"],
+            baseline_config.data.future_steps,
+            baseline_config.resolved_device,
+            expected_collisions,
+        )
+        report["action_agnostic_sensitivity"] = action_sensitivity(
+            baseline_scenarios
+        )
     output_dir.mkdir(parents=True, exist_ok=True)
-    render_trajectories(scenarios, output_dir / "counterfactual_trajectories.png")
+    render_trajectories(
+        scenarios,
+        output_dir / "counterfactual_trajectories.png",
+        sample["obstacle_position"].tolist(),
+    )
     (output_dir / "counterfactual_report.json").write_text(
         json.dumps(report, indent=2, allow_nan=True),
         encoding="utf-8",

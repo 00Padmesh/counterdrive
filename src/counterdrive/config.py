@@ -19,7 +19,7 @@ class DataConfig:
     train_samples: int = 256
     val_samples: int = 64
     num_workers: int = 0
-    collision_fraction: float = 0.35
+    collision_fraction: float = 1.0
 
 
 @dataclass

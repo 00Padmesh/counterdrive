@@ -44,7 +44,8 @@ counterdrive-evaluate --config configs/mvp.yaml --checkpoint checkpoints/best.pt
 For a fast CPU smoke test, reduce `train_samples`, `val_samples`, and `epochs`,
 and set `model.pretrained: false` if offline. Evaluation reports ADE, FDE,
 collision accuracy, precision, recall, F1, AUROC, and average precision. The
-synthetic generator creates a configurable fraction of positive collisions.
+synthetic generator reuses each observed scene across five alternative future
+actions and recomputes collision labels from each proposed trajectory.
 
 ### Colab and persistent checkpoints
 
@@ -67,7 +68,7 @@ interrupted run with:
 ```bash
 counterdrive-train \
   --config configs/colab_phase2.yaml \
-  --resume /content/drive/MyDrive/CounterDrive/checkpoints/phase2/last.pt
+  --resume /content/drive/MyDrive/CounterDrive/checkpoints/phase2_counterfactual/last.pt
 ```
 
 The same directory receives `history.json` and `run_metadata.json`, including the
@@ -86,13 +87,14 @@ Compare both models and visualize five action scenarios:
 ```bash
 counterdrive-counterfactual \
   --config configs/colab_phase2.yaml \
-  --checkpoint /content/drive/MyDrive/CounterDrive/checkpoints/phase2/best.pt \
-  --baseline-checkpoint /content/drive/MyDrive/CounterDrive/checkpoints/baseline/best.pt \
+  --checkpoint /content/drive/MyDrive/CounterDrive/checkpoints/phase2_counterfactual/best.pt \
+  --baseline-checkpoint /content/drive/MyDrive/CounterDrive/checkpoints/baseline_counterfactual/best.pt \
   --output-dir /content/drive/MyDrive/CounterDrive/artifacts/counterfactual
 ```
 
-This writes `counterfactual_report.json` and
-`counterfactual_trajectories.png`.
+The report includes ground-truth outcomes, counterfactual collision accuracy,
+and the predicted risk gap between unsafe and safe actions. This writes
+`counterfactual_report.json` and `counterfactual_trajectories.png`.
 
 ## Run the API
 

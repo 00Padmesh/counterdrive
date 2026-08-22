@@ -10,7 +10,7 @@ data:
   train_samples: 256
   val_samples: 64
   num_workers: 0
-  collision_fraction: 0.35
+  collision_fraction: 1.0
 model:
   pretrained: true
   freeze_vision: true
