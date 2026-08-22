@@ -46,7 +46,7 @@ def render_sample(sample: dict, width: int = 720, height: int = 280) -> np.ndarr
         cv2.circle(canvas, tuple(point), 4, (30, 150, 30), -1)
     actions = sample["actions"].numpy()
     label = (
-        f"collision={int(sample['collision'].item())}  "
+        f"risk_proxy={int(sample['collision'].item())}  "
         f"steer=[{actions[:, 0].min():.2f}, {actions[:, 0].max():.2f}]"
     )
     cv2.putText(
@@ -84,7 +84,7 @@ def audit_dataset(
         "dataset_windows": len(dataset),
         "scene_count": len(set(dataset.scene_tokens)),
         "audited_samples": sample_count,
-        "collision_rate": float(np.mean(collisions)),
+        "proximity_risk_rate": float(np.mean(collisions)),
         "trajectory": {
             "lateral_min": float(trajectory_array[:, 0].min()),
             "lateral_max": float(trajectory_array[:, 0].max()),

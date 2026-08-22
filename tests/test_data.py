@@ -6,6 +6,7 @@ from counterdrive.data import (
     SyntheticDrivingDataset,
     derive_actions,
     global_to_ego,
+    oriented_proximity_risk,
     quaternion_yaw,
     scene_split_indices,
     valid_window_starts,
@@ -75,3 +76,21 @@ def test_nuscenes_windows_and_scene_split_do_not_leak() -> None:
     validation_scenes = {scene_tokens[index] for index in validation_indices}
     assert train_scenes.isdisjoint(validation_scenes)
     assert train_indices and validation_indices
+
+
+def test_oriented_proximity_avoids_large_radius_false_positive() -> None:
+    ego = np.asarray([0.0, 0.0])
+    rotation = [1.0, 0.0, 0.0, 0.0]
+    car_size = [1.8, 4.2, 1.6]
+    assert oriented_proximity_risk(
+        ego,
+        np.asarray([5.0, 0.0]),
+        rotation,
+        car_size,
+    )
+    assert not oriented_proximity_risk(
+        ego,
+        np.asarray([0.0, 5.0]),
+        rotation,
+        car_size,
+    )

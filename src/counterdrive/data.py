@@ -17,7 +17,7 @@ ACTION_SCENARIOS: dict[str, tuple[float, float, float]] = {
     "turn_left": (-0.65, 0.35, 0.0),
     "turn_right": (0.65, 0.35, 0.0),
 }
-NUSCENES_CACHE_VERSION = 1
+NUSCENES_CACHE_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -107,6 +107,26 @@ def scene_split_indices(
         index for index, scene in enumerate(scene_tokens) if scene in validation_scenes
     ]
     return train_indices, validation_indices
+
+
+def oriented_proximity_risk(
+    ego_position: np.ndarray,
+    object_position: np.ndarray,
+    object_rotation: list[float],
+    object_size: list[float],
+    safety_margin: float = 0.75,
+) -> bool:
+    relative_ego = global_to_ego(
+        ego_position.reshape(1, 2),
+        object_position,
+        quaternion_yaw(object_rotation),
+    )[0]
+    width, length = object_size[:2]
+    expanded_half_length = length / 2 + 2.4 + safety_margin
+    expanded_half_width = width / 2 + 1.0 + safety_margin
+    inside_longitudinal = abs(relative_ego[0]) <= expanded_half_length
+    inside_lateral = abs(relative_ego[1]) <= expanded_half_width
+    return bool(inside_longitudinal and inside_lateral)
 
 
 class SyntheticDrivingDataset(Dataset[dict[str, torch.Tensor]]):
@@ -329,9 +349,12 @@ class NuScenesSequenceDataset(Dataset[dict[str, torch.Tensor]]):
             for annotation_token in record["anns"]:
                 annotation = self.nusc.get("sample_annotation", annotation_token)
                 object_position = np.asarray(annotation["translation"][:2])
-                width, length = annotation["size"][:2]
-                object_radius = 0.5 * np.hypot(width, length)
-                if np.linalg.norm(object_position - ego_position) < object_radius + 1.2:
+                if oriented_proximity_risk(
+                    ego_position,
+                    object_position,
+                    annotation["rotation"],
+                    annotation["size"],
+                ):
                     return True
         return False
 

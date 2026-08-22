@@ -150,10 +150,10 @@ This produces `nuscenes_audit.json` with label/control ranges and
 
 The adapter reads `CAM_FRONT`, converts future global poses into the current ego
 coordinate frame, and derives steering plus throttle/brake proxies from yaw rate and
-acceleration. It creates approximate collision-risk labels from future annotated
-object proximity and object dimensions. These remain proxy labels—nuScenes does not
-provide actual interventions or vehicle control commands—so they must not be treated
-as safety validation.
+acceleration. It creates approximate proximity-risk labels by testing the future ego
+footprint against oriented, safety-expanded object footprints. These are not observed
+collisions: nuScenes does not provide interventions or vehicle control commands, so
+the proxy must not be treated as safety validation.
 
 All valid temporal windows are indexed. Splits are made by scene rather than by
 individual frame, preventing adjacent windows from leaking between training and
