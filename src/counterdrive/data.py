@@ -85,13 +85,14 @@ class SyntheticDrivingDataset(Dataset[dict[str, torch.Tensor]]):
         throttle = float(rng.uniform(0.0, 1.0))
         brake = float(rng.uniform(0.0, 0.7))
         speed = max(0.15, throttle - 0.65 * brake + 0.25)
-        is_collision = (index % 100) < round(self.collision_fraction * 100)
+        collision_bucket = (index * 37) % 100
+        is_collision = collision_bucket < round(self.collision_fraction * 100)
         collision_step = int(rng.integers(1, self.future_steps + 1))
         if is_collision:
             obstacle_x = 0.18 * steering * collision_step**2
             obstacle_y = collision_step * speed
         else:
-            obstacle_x = float(rng.choice([-1.0, 1.0]) * rng.uniform(2.0, 3.0))
+            obstacle_x = float(rng.choice([-1.0, 1.0]) * rng.uniform(8.0, 10.0))
             obstacle_y = float(rng.uniform(2.5, 8.0))
 
         frames = []

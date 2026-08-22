@@ -32,6 +32,8 @@ def test_synthetic_dataset_balances_collision_labels() -> None:
     )
     positives = sum(int(dataset[index]["collision"].item()) for index in range(100))
     assert positives == 40
+    first_twenty = {int(dataset[index]["collision"].item()) for index in range(20)}
+    assert first_twenty == {0, 1}
 
 
 def test_nuscenes_coordinate_and_action_helpers() -> None:
